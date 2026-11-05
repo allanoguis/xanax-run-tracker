@@ -92,9 +92,9 @@ test('rejects missing, malformed and impossible deposit dates', () => {
   }
 })
 
-test('creates a date-only candidate before transfers or a purchase arrive', () => {
+test('creates a dated deposit candidate before transfers or a purchase arrive', () => {
   const pending = matchRecentRuns([deposit], friendId)
-  assert.deepEqual(pending, [{ sourceLogId: 'deposit:deposit', sourceDepositId: 'deposit', date: '2026-11-06' }])
+  assert.deepEqual(pending, [{ sourceLogId: 'deposit:deposit', sourceDepositId: 'deposit', date: '2026-11-06', cashDeposit: 510000 }])
   const completed = matchRecentRuns([deposit, transfer, purchase], friendId)
   assert.equal(completed.length, 1)
   assert.equal(completed[0]?.sourceDepositId, pending[0]?.sourceDepositId)

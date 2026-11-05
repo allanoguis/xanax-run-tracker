@@ -45,3 +45,10 @@ test('builds a dated row with the sheet formulas', () => {
 test('leaves every other cell blank for a date-only run', () => {
   assert.deepEqual(buildRunValues({ date: '2026-11-06' }, 3), [46332, '', '', '', '', '', '', ''])
 })
+
+test('includes the cash deposit immediately and leaves purchase fields blank', () => {
+  for (const cashDeposit of [510000, 0]) {
+    assert.deepEqual(buildRunValues({ date: '2026-11-06', cashDeposit }, 3),
+      [46332, cashDeposit, '', '', '', '', '', ''])
+  }
+})

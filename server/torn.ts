@@ -135,6 +135,7 @@ export function matchRecentRuns(logs: TornLog[], recipientId = friendId()): Impo
       sourceLogId: `deposit:${deposit.id}`,
       sourceDepositId: deposit.id,
       date: depositDate(deposit)!,
+      cashDeposit: numeric(deposit.data.money) ?? undefined,
     })
   }
   return runs.reverse().sort((a, b) => b.date.localeCompare(a.date)).slice(0, MAX_RUNS_PER_SYNC)

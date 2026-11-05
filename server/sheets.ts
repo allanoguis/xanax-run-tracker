@@ -73,7 +73,7 @@ function dateSerial(date: string): number {
 }
 
 export function buildRunValues(input: RunInput, rowNumber: number): Array<number | string> {
-  if (input.saPrice === undefined) return [dateSerial(input.date), '', '', '', '', '', '', '']
+  if (input.saPrice === undefined) return [dateSerial(input.date), input.cashDeposit ?? '', '', '', '', '', '', '']
   return [
     dateSerial(input.date),
     input.cashDeposit ?? '',
@@ -195,7 +195,19 @@ export async function createRun(input: RunInput & { sourceLogId: string; sourceD
   if (existingIndex >= 0) {
     const rowNumber = existingIndex + 2
     // A pending sync must never clear a row that has already been completed.
-    if (input.saPrice === undefined) return { rowNumber, status: 'unchanged' }
+    if (input.saPrice === undefined) {
+      if (input.cashDeposit !== undefined &&
+          String(rows[existingIndex]?.[1] ?? '') !== String(input.cashDeposit)) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `${SHEET_NAME}!B${rowNumber}`,
+          valueInputOption: 'RAW',
+          requestBody: { values: [[input.cashDeposit]] },
+        })
+        return { rowNumber, status: 'updated' }
+      }
+      return { rowNumber, status: 'unchanged' }
+    }
     const quantityChanged = buildRunValues(input, rowNumber).some((value, index) =>
       ![3, 5, 6].includes(index) && String(rows[existingIndex]?.[index] ?? '') !== String(value))
     if (quantityChanged || !imported) {
