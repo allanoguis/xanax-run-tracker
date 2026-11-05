@@ -1,4 +1,5 @@
 
+import { createPrivateKey } from 'node:crypto'
 import { google, type sheets_v4 } from 'googleapis'
 
 export interface RunInput {
@@ -94,6 +95,25 @@ function getSpreadsheetId(): string {
   return id
 }
 
+export function normalizeGooglePrivateKey(value: string): string {
+  let key = value.trim()
+  if ((key.startsWith('"') && key.endsWith('"')) ||
+      (key.startsWith("'") && key.endsWith("'"))) {
+    key = key.slice(1, -1)
+  }
+  key = key.replace(/\\n/g, '\n')
+
+  try {
+    if (createPrivateKey(key).asymmetricKeyType !== 'rsa') {
+      throw new Error('Not an RSA key')
+    }
+  } catch {
+    throw new Error('Invalid GOOGLE_PRIVATE_KEY: expected an RSA PEM private key; check quotes and newline formatting')
+  }
+
+  return key
+}
+
 function getSheetsClient(): sheets_v4.Sheets {
   const email = process.env.GOOGLE_CLIENT_EMAIL
   const privateKey = process.env.GOOGLE_PRIVATE_KEY
@@ -104,7 +124,7 @@ function getSheetsClient(): sheets_v4.Sheets {
 
   const auth = new google.auth.JWT({
     email,
-    key: privateKey.replace(/\\n/g, '\n'),
+    key: normalizeGooglePrivateKey(privateKey),
     scopes: [
       'https://www.googleapis.com/auth/spreadsheets',
     ],
