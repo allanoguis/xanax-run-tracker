@@ -1,0 +1,10 @@
+# Local build output and development files
+dist
+dist-ssr
+coverage
+.vscode
+server/*.test.ts
+README.md
+
+# Keep all local environment files out of CLI uploads
+.env*
