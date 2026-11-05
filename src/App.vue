@@ -4,6 +4,8 @@ import {
   ArrowRight,
   Check,
   Copy,
+  Hash,
+  LayoutDashboard,
   LockKeyhole,
   Package,
   Plane,
@@ -11,6 +13,7 @@ import {
   Search,
   Sheet,
 } from '@lucide/vue'
+import { applyTheme, isThemeStorageEvent, readTheme, saveTheme, type Theme } from './theme'
 
 type RunsResponse = {
   success: boolean
@@ -38,6 +41,8 @@ const notice = ref('')
 const copyMessage = ref('')
 const copiedCell = ref('')
 const search = ref('')
+const theme = ref<Theme>(readTheme())
+const activeSection = ref<'overview' | 'ledger'>('ledger')
 const headers = ref<string[]>(defaultHeaders)
 const rows = ref<string[][]>([])
 const lastUpdated = ref('')
@@ -46,10 +51,37 @@ const clock = ref(Date.now())
 let clockInterval: number | undefined
 
 onMounted(() => {
-  syncCooldownUntil.value = Number(localStorage.getItem('tornSyncCooldownUntil') ?? 0)
+  try {
+    syncCooldownUntil.value = Number(localStorage.getItem('tornSyncCooldownUntil') ?? 0)
+  } catch {
+    syncCooldownUntil.value = 0
+  }
   clockInterval = window.setInterval(() => { clock.value = Date.now() }, 1000)
+  window.addEventListener('storage', syncThemeFromStorage)
+  window.addEventListener('hashchange', syncSectionFromHash)
+  syncSectionFromHash()
 })
-onUnmounted(() => window.clearInterval(clockInterval))
+onUnmounted(() => {
+  window.clearInterval(clockInterval)
+  window.removeEventListener('storage', syncThemeFromStorage)
+  window.removeEventListener('hashchange', syncSectionFromHash)
+})
+
+function changeTheme(event: Event) {
+  const selected = (event.target as HTMLSelectElement).value
+  theme.value = selected === 'discord' ? 'discord' : 'torn'
+  saveTheme(theme.value)
+}
+
+function syncThemeFromStorage(event: StorageEvent) {
+  if (!isThemeStorageEvent(event)) return
+  theme.value = readTheme()
+  applyTheme(theme.value)
+}
+
+function syncSectionFromHash() {
+  activeSection.value = window.location.hash === '#overview' ? 'overview' : 'ledger'
+}
 
 const cooldownSeconds = computed(() => Math.max(0, Math.ceil((syncCooldownUntil.value - clock.value) / 1000)))
 const refreshLabel = computed(() => {
@@ -190,11 +222,44 @@ async function copyCell(value: string, row: number, column: number) {
         <span class="brand-name">Torn <span>Run Tracker</span></span>
       </div>
       <div class="top-actions">
+        <div class="theme-control">
+          <label for="theme-select">Theme</label>
+          <select id="theme-select" :value="theme" aria-label="Theme" @change="changeTheme">
+            <option value="torn">Torn</option>
+            <option value="discord">Discord</option>
+          </select>
+        </div>
         <span class="private-label"><LockKeyhole :size="15" /> Private workspace</span>
         <button v-if="connected" class="link-button" type="button" @click="lock">Lock</button>
       </div>
     </header>
 
+    <div class="workspace-shell" :class="{ 'discord-connected': theme === 'discord' && connected }">
+      <aside v-if="theme === 'discord' && connected" class="discord-server-rail" aria-label="Workspace shortcuts">
+        <a href="#overview" class="discord-server-icon" :class="{ active: activeSection === 'overview' }" aria-label="Run tracker overview" @click="activeSection = 'overview'">
+          <Plane :size="22" aria-hidden="true" />
+        </a>
+        <span class="discord-rail-divider" aria-hidden="true"></span>
+        <a href="#ledger" class="discord-server-icon" :class="{ active: activeSection === 'ledger' }" aria-label="Run ledger" @click="activeSection = 'ledger'">
+          <Sheet :size="22" aria-hidden="true" />
+        </a>
+      </aside>
+      <nav v-if="theme === 'discord' && connected" class="discord-channel-sidebar" aria-label="Run tracker sections">
+        <div class="discord-sidebar-title">Run Tracker</div>
+        <div class="discord-channel-list">
+          <div class="discord-channel-group">WORKSPACE</div>
+          <a href="#overview" class="discord-channel" :class="{ active: activeSection === 'overview' }" @click="activeSection = 'overview'">
+            <LayoutDashboard :size="18" aria-hidden="true" /> overview
+          </a>
+          <a href="#ledger" class="discord-channel" :class="{ active: activeSection === 'ledger' }" @click="activeSection = 'ledger'">
+            <Hash :size="20" aria-hidden="true" /> run-ledger
+          </a>
+        </div>
+        <div class="discord-sidebar-footer">
+          <span class="discord-user-avatar" aria-hidden="true">R</span>
+          <span><strong>Run Tracker</strong><small><span class="status-dot" aria-hidden="true"></span> Sheets connected</small></span>
+        </div>
+      </nav>
     <main class="content">
       <section v-if="!connected" class="access-layout" aria-labelledby="access-title">
         <div class="intro">
@@ -220,11 +285,22 @@ async function copyCell(value: string, row: number, column: number) {
       </section>
 
       <template v-else>
-        <div class="page-heading">
+        <div id="overview" class="page-heading">
           <div>
             <div class="eyebrow">WORKSPACE OVERVIEW</div>
-            <h1>Run tracker</h1>
+            <h1><Hash v-if="theme === 'discord'" :size="22" aria-hidden="true" />{{ theme === 'discord' ? 'run-ledger' : 'Run tracker' }}</h1>
             <p>Every entry and calculated value, together at a glance.</p>
+          </div>
+          <div v-if="theme === 'discord'" class="discord-heading-actions">
+            <label class="search-field">
+              <Search :size="17" aria-hidden="true" />
+              <span class="sr-only">Search runs</span>
+              <input v-model="search" type="search" placeholder="Search runs" />
+            </label>
+            <button class="button secondary refresh-button" type="button" :disabled="loading || cooldownSeconds > 0" @click="refresh">
+              <RefreshCw :size="16" :class="{ spinning: loading }" />
+              {{ refreshLabel }}
+            </button>
           </div>
         </div>
         <div class="connection">
@@ -237,24 +313,26 @@ async function copyCell(value: string, row: number, column: number) {
         <p v-if="notice" class="banner success-message" role="status">{{ notice }}</p>
         <span class="sr-only" role="status">{{ copyMessage }}</span>
 
+        <div class="workspace-body">
         <section class="stats" aria-label="Run summary">
+          <h2 v-if="theme === 'discord'" class="discord-details-title">RUN ACTIVITY</h2>
           <div class="stat">
             <span>Recorded runs</span><strong>{{ rows.length }}</strong><small>Entries in your sheet</small>
-            <span class="stat-icon blue" aria-hidden="true"><Plane :size="19" /></span>
+            <span class="stat-icon recorded" aria-hidden="true"><Plane :size="19" /></span>
           </div>
           <div class="stat">
             <span>Latest run</span><strong class="stat-date">{{ latest?.[0] || '—' }}</strong>
             <small>Most recent entry in the sheet</small>
-            <span class="stat-icon violet" aria-hidden="true"><Plane :size="19" /></span>
+            <span class="stat-icon latest" aria-hidden="true"><Plane :size="19" /></span>
           </div>
           <div class="stat">
             <span>Latest restock</span><strong class="stat-date">{{ latest?.[7] || '—' }}</strong>
             <small>Time from the latest entry</small>
-            <span class="stat-icon green" aria-hidden="true"><Package :size="19" /></span>
+            <span class="stat-icon restock" aria-hidden="true"><Package :size="19" /></span>
           </div>
         </section>
 
-        <section class="panel" aria-labelledby="ledger-title">
+        <section id="ledger" class="panel" aria-labelledby="ledger-title">
           <div class="panel-heading">
             <div>
               <div class="eyebrow">YOUR DATA</div>
@@ -263,7 +341,7 @@ async function copyCell(value: string, row: number, column: number) {
             </div>
             <span class="count">{{ rows.length }} {{ rows.length === 1 ? 'entry' : 'entries' }}</span>
           </div>
-          <div class="toolbar">
+          <div v-if="theme !== 'discord'" class="toolbar">
             <label class="search-field">
               <Search :size="17" aria-hidden="true" />
               <span class="sr-only">Search runs</span>
@@ -309,8 +387,10 @@ async function copyCell(value: string, row: number, column: number) {
             </button>
           </div>
         </section>
+        </div>
         <p class="footnote">Refresh imports recent Torn logs and reads the consolidated Google Sheet. It is limited to once every five minutes.</p>
       </template>
     </main>
+    </div>
   </div>
 </template>

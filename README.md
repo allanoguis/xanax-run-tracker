@@ -9,6 +9,8 @@ A Vue dashboard for the `Runs` tab in a Google spreadsheet. The frontend reads a
 3. Run `pnpm run dev:full` and open the local URL printed by Vercel.
 4. Enter your `ADMIN_SECRET` in the access screen. It stays in page memory and is cleared when you lock or reload the page.
 
+Use the top-bar Theme selector to switch between Torn and Discord dark. Torn is selected for new browsers and replaces retired theme settings. The choice is stored in this browser and applies to both the access screen and the run workspace.
+
 `pnpm run dev` starts only the Vite frontend; use `dev:full` for the API routes. Run `pnpm test` for the event matching and sheet row tests, and `pnpm run build` to type check and build the frontend.
 
 ## Import rules
