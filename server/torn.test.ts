@@ -30,6 +30,23 @@ test('matches the three events and converts purchase time to Manila', () => {
   }])
 })
 
+test('keeps one labeled quantity across repeated transfers for a purchase', () => {
+  const firstTransfer = { ...transfer, id: 'transfer-1', timestamp: at('2026-11-06T01:30:00Z') }
+  const secondTransfer = { ...transfer, id: 'transfer-2', timestamp: at('2026-11-06T01:40:00Z') }
+  const thirdTransfer = { ...transfer, id: 'transfer-3' }
+  const laterTransfer = { ...transfer, id: 'transfer-after-purchase', timestamp: at('2026-11-06T02:00:00Z') }
+  const runs = matchRecentRuns([deposit, firstTransfer, firstTransfer, secondTransfer, thirdTransfer, laterTransfer, purchase], friendId)
+
+  assert.equal(runs.length, 1)
+  assert.equal(runs[0].date, '2026-11-06')
+  assert.equal(runs[0].pasabuyQty, 5)
+})
+
+test('does not guess a quantity when transfers for one purchase have different labels', () => {
+  const otherQuantity = { ...transfer, id: 'transfer-2', data: { ...transfer.data, message: 'xan3' } }
+  assert.equal(matchRecentRuns([deposit, transfer, otherQuantity, purchase], friendId).length, 0)
+})
+
 test('rejects unlabeled and unrelated events', () => {
   assert.equal(matchRecentRuns([{ ...deposit, data: { ...deposit.data, message: 'other' } }, transfer, purchase], friendId).length, 0)
   assert.equal(matchRecentRuns([deposit, { ...transfer, data: { ...transfer.data, sender: 123 } }, purchase], friendId).length, 0)
@@ -56,4 +73,5 @@ test('keeps two distinct purchases on the same Manila date', () => {
   ], friendId)
   assert.deepEqual(runs.map((run) => run.sourceLogId), ['purchase-2', 'purchase'])
   assert.deepEqual(runs.map((run) => run.date), ['2026-11-06', '2026-11-06'])
+  assert.deepEqual(runs.map((run) => run.pasabuyQty), [5, 5])
 })

@@ -17,6 +17,7 @@ type RunsResponse = {
   headers: string[]
   data: string[][]
   imported?: number
+  updated?: number
   alreadyPresent?: number
   nextAllowedAt?: string
 }
@@ -150,9 +151,11 @@ async function refresh() {
     const result = await requestRuns(key.value, true)
     applyRuns(result)
     if (result.nextAllowedAt) setCooldown(Date.parse(result.nextAllowedAt))
-    notice.value = result.imported
-      ? `Imported ${result.imported} new ${result.imported === 1 ? 'run' : 'runs'} from Torn.`
-      : 'No new labeled runs found. Your sheet is up to date.'
+    const changes = [
+      result.imported ? `Imported ${result.imported} new ${result.imported === 1 ? 'run' : 'runs'}.` : '',
+      result.updated ? `Updated ${result.updated} existing ${result.updated === 1 ? 'run' : 'runs'}.` : '',
+    ].filter(Boolean)
+    notice.value = changes.length ? changes.join(' ') : 'No new labeled runs found. Your sheet is up to date.'
   } catch (error) {
     const message = describeError(error)
     const retryAfter = (error as ApiError).retryAfterSeconds
@@ -205,14 +208,14 @@ async function copyCell(value: string, row: number, column: number) {
           <span class="access-icon" aria-hidden="true"><LockKeyhole :size="23" /></span>
           <h2>Open your workspace</h2>
           <p>Enter the access key to view your runs.</p>
-          <label for="key">Access key</label>
-          <input id="key" v-model="keyInput" type="password" autocomplete="off" placeholder="Enter access key" required />
+          <label for="key">Passcode</label>
+          <input id="key" v-model="keyInput" type="password" autocomplete="off" placeholder="Enter passcode" required />
           <p v-if="errorMessage" class="error-message" role="alert">{{ errorMessage }}</p>
           <button class="button primary access-button" type="submit" :disabled="connecting">
             {{ connecting ? 'Connecting…' : 'Open workspace' }}
             <ArrowRight v-if="!connecting" :size="17" />
           </button>
-          <small>Your key is kept in memory for this page only.</small>
+          <small>Your code is kept in memory for this page only.</small>
         </form>
       </section>
 

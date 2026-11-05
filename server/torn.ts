@@ -77,30 +77,36 @@ function isXanaxPurchase(log: TornLog): boolean {
 }
 
 export function matchRecentRuns(logs: TornLog[], recipientId = friendId()): ImportedRun[] {
-  const purchases = logs.filter(isXanaxPurchase).sort((a, b) => b.timestamp - a.timestamp)
-  const transfers = logs.filter((log) => pasabuyQuantity(log, recipientId) !== null)
+  const purchases = logs.filter(isXanaxPurchase).sort((a, b) => a.timestamp - b.timestamp)
+  const transfers = [...new Map(
+    logs.filter((log) => pasabuyQuantity(log, recipientId) !== null).map((log) => [log.id, log]),
+  ).values()]
   const deposits = logs.filter((log) => isDeposit(log, recipientId))
-  const usedTransfers = new Set<string>()
   const usedDeposits = new Set<string>()
   const runs: ImportedRun[] = []
+  let previousPurchaseAt = -Infinity
 
   for (const purchase of purchases) {
+    const previous = previousPurchaseAt
+    previousPurchaseAt = purchase.timestamp
     if (purchase.timestamp < FIRST_IMPORT_TIMESTAMP) continue
     const { date, time } = manilaDateTime(purchase.timestamp)
-    const transfer = transfers
-      .filter((log) => !usedTransfers.has(log.id) && log.timestamp <= purchase.timestamp &&
+    const purchaseTransfers = transfers
+      .filter((log) => log.timestamp > previous && log.timestamp <= purchase.timestamp &&
         purchase.timestamp - log.timestamp <= MAX_TRANSFER_AGE)
-      .sort((a, b) => b.timestamp - a.timestamp)[0]
-    if (!transfer) continue
+      .sort((a, b) => a.timestamp - b.timestamp)
+    if (!purchaseTransfers.length) continue
     const deposit = deposits
-      .filter((log) => !usedDeposits.has(log.id) && log.timestamp <= transfer.timestamp &&
-        transfer.timestamp - log.timestamp <= MAX_DEPOSIT_AGE)
+      .filter((log) => !usedDeposits.has(log.id) && log.timestamp <= purchaseTransfers[0].timestamp &&
+        purchaseTransfers[0].timestamp - log.timestamp <= MAX_DEPOSIT_AGE)
       .sort((a, b) => b.timestamp - a.timestamp)[0]
     if (!deposit) continue
-    const quantity = pasabuyQuantity(transfer, recipientId)
+    const quantity = pasabuyQuantity(purchaseTransfers[0], recipientId)
+    if (quantity === null || purchaseTransfers.some((transfer) =>
+      pasabuyQuantity(transfer, recipientId) !== quantity)) continue
     const cashDeposit = numeric(deposit.data.money)
     const saPrice = numeric(purchase.data.cost_each)
-    if (quantity === null || cashDeposit === null || saPrice === null) continue
+    if (cashDeposit === null || saPrice === null) continue
     runs.push({
       sourceLogId: purchase.id,
       date,
@@ -109,11 +115,9 @@ export function matchRecentRuns(logs: TornLog[], recipientId = friendId()): Impo
       pasabuyQty: quantity,
       timeRestock: time,
     })
-    usedTransfers.add(transfer.id)
     usedDeposits.add(deposit.id)
-    if (runs.length === MAX_RUNS_PER_SYNC) break
   }
-  return runs
+  return runs.slice(-MAX_RUNS_PER_SYNC).reverse()
 }
 
 async function fetchLogType(typeId: number, relevant: (log: TornLog) => boolean): Promise<TornLog[]> {

@@ -136,7 +136,7 @@ export async function getRuns() {
   }
 }
 
-// Insert a run and its calculated columns in one Sheets request.
+// Insert a run, or reconcile the quantity of a previously imported purchase.
 export async function createRun(input: RunInput & { sourceLogId: string }) {
   const sheets = getSheetsClient()
   const spreadsheetId = getSpreadsheetId()
@@ -150,18 +150,54 @@ export async function createRun(input: RunInput & { sourceLogId: string }) {
       } }],
     },
   })
-  if (importedLog.data.matchedDeveloperMetadata?.length) {
-    throw new Error('RUN_ALREADY_EXISTS')
-  }
+  const imported = Boolean(importedLog.data.matchedDeveloperMetadata?.length)
 
-  // Find the next row; two distinct purchases may share the same Manila date.
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${SHEET_NAME}!A2:A`,
+    range: `${SHEET_NAME}!A2:H`,
     valueRenderOption: 'UNFORMATTED_VALUE',
   })
 
   const rows = (response.data.values ?? []) as unknown[][]
+  const existingIndex = rows.findIndex((row) =>
+    Number(row[0]) === dateSerial(input.date) && String(row[7] ?? '') === input.timeRestock,
+  )
+  if (imported && existingIndex < 0) throw new Error('RUN_ROW_NOT_FOUND')
+
+  if (existingIndex >= 0) {
+    const rowNumber = existingIndex + 2
+    const quantityChanged = Number(rows[existingIndex][4]) !== input.pasabuyQty
+    if (quantityChanged || !imported) {
+      const spreadsheet = await sheets.spreadsheets.get({
+        spreadsheetId,
+        fields: 'sheets.properties(sheetId,title)',
+      })
+      const sheetId = spreadsheet.data.sheets?.find((sheet: sheets_v4.Schema$Sheet) => sheet.properties?.title === SHEET_NAME)
+        ?.properties?.sheetId
+      if (sheetId == null) throw new Error(`Missing ${SHEET_NAME} sheet`)
+      const requests: sheets_v4.Schema$Request[] = []
+      if (quantityChanged) requests.push({
+        updateCells: {
+          start: { sheetId, rowIndex: rowNumber - 1, columnIndex: 4 },
+          rows: [{ values: [{ userEnteredValue: { numberValue: input.pasabuyQty } }] }],
+          fields: 'userEnteredValue',
+        },
+      })
+      if (!imported) requests.push({
+        createDeveloperMetadata: {
+          developerMetadata: {
+            metadataKey: RUN_LOG_ID_METADATA_KEY,
+            metadataValue: input.sourceLogId,
+            location: { spreadsheet: true },
+            visibility: 'PROJECT',
+          },
+        },
+      })
+      await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests } })
+    }
+    return { rowNumber, status: quantityChanged ? 'updated' : 'unchanged' }
+  }
+
   // Row 2 contains the historical entry; new rows start at row 3.
   const rowNumber = Math.max(3, rows.length + 2)
   const spreadsheet = await sheets.spreadsheets.get({
@@ -216,5 +252,5 @@ export async function createRun(input: RunInput & { sourceLogId: string }) {
     },
   })
 
-  return { rowNumber, updatedCells: values.length }
+  return { rowNumber, status: 'created' }
 }

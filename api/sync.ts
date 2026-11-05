@@ -41,23 +41,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     lastAttemptAt = now
     const candidates = await getRecentTornRuns()
     let imported = 0
+    let updated = 0
     let alreadyPresent = 0
     for (const run of candidates.sort((a, b) => a.date.localeCompare(b.date))) {
-      try {
-        await createRun(run)
-        imported++
-      } catch (error) {
-        if (error instanceof Error && error.message === 'RUN_ALREADY_EXISTS') {
-          alreadyPresent++
-        } else {
-          throw error
-        }
-      }
+      const result = await createRun(run)
+      if (result.status === 'created') imported++
+      else if (result.status === 'updated') updated++
+      else alreadyPresent++
     }
     const result = await getRuns()
     return res.status(200).json({
       success: true,
       imported,
+      updated,
       alreadyPresent,
       nextAllowedAt: new Date(now + COOLDOWN_MS).toISOString(),
       ...result,
