@@ -54,10 +54,20 @@ function manilaDateTime(timestamp: number) {
   }
 }
 
+function depositDate(log: TornLog): string | null {
+  const match = /^deposit-(\d{1,2})\/(\d{1,2})\/(\d{4})$/i.exec(String(log.data.message ?? '').trim())
+  if (!match) return null
+  const [, month, day, year] = match
+  const date = `${year}-${month!.padStart(2, '0')}-${day!.padStart(2, '0')}`
+  const parsed = new Date(`${date}T00:00:00Z`)
+  return Number(year) >= 1000 && Number.isFinite(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === date ? date : null
+}
+
 function isDeposit(log: TornLog, recipientId: number): boolean {
   return log.details.id === MONEY_SEND_LOG_ID &&
     numeric(log.data.receiver) === recipientId &&
-    String(log.data.message ?? '').trim().toLowerCase() === 'deposit' &&
+    depositDate(log) !== null &&
     (numeric(log.data.money) ?? 0) >= 0
 }
 
@@ -90,7 +100,7 @@ export function matchRecentRuns(logs: TornLog[], recipientId = friendId()): Impo
     const previous = previousPurchaseAt
     previousPurchaseAt = purchase.timestamp
     if (purchase.timestamp < FIRST_IMPORT_TIMESTAMP) continue
-    const { date, time } = manilaDateTime(purchase.timestamp)
+    const { time } = manilaDateTime(purchase.timestamp)
     const purchaseTransfers = transfers
       .filter((log) => log.timestamp > previous && log.timestamp <= purchase.timestamp &&
         purchase.timestamp - log.timestamp <= MAX_TRANSFER_AGE)
@@ -109,7 +119,7 @@ export function matchRecentRuns(logs: TornLog[], recipientId = friendId()): Impo
     if (cashDeposit === null || saPrice === null) continue
     runs.push({
       sourceLogId: purchase.id,
-      date,
+      date: depositDate(deposit)!,
       cashDeposit,
       saPrice,
       pasabuyQty: quantity,

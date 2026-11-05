@@ -10,7 +10,7 @@ function event(id: string, typeId: number, timestamp: string, data: Record<strin
 }
 
 const deposit = event('deposit', 4800, '2026-11-05T06:16:28Z', {
-  receiver: friendId, money: 510000, message: 'deposit',
+  receiver: friendId, money: 510000, message: 'deposit-11/6/2026',
 })
 const transfer = event('transfer', 4810, '2026-11-06T01:45:54Z', {
   sender: friendId, money: 20198402, message: 'xan5',
@@ -53,7 +53,7 @@ test('rejects unlabeled and unrelated events', () => {
   assert.equal(matchRecentRuns([deposit, transfer, { ...purchase, data: { ...purchase.data, area: 2 } }], friendId).length, 0)
 })
 
-test('uses Manila date across midnight and ignores historical purchases', () => {
+test('uses the label date across midnight and ignores historical purchases', () => {
   const midnightPurchase = { ...purchase, timestamp: at('2026-11-05T16:01:00Z') }
   const midnightTransfer = { ...transfer, timestamp: at('2026-11-05T15:59:00Z') }
   const midnightDeposit = { ...deposit, timestamp: at('2026-11-05T15:00:00Z') }
@@ -74,4 +74,19 @@ test('keeps two distinct purchases on the same Manila date', () => {
   assert.deepEqual(runs.map((run) => run.sourceLogId), ['purchase-2', 'purchase'])
   assert.deepEqual(runs.map((run) => run.date), ['2026-11-06', '2026-11-06'])
   assert.deepEqual(runs.map((run) => run.pasabuyQty), [5, 5])
+})
+
+test('uses the explicit deposit date regardless of deposit or purchase calendar day', () => {
+  const labeledDeposit = { ...deposit, timestamp: at('2026-11-05T15:50:00Z') }
+  const laterPurchase = { ...purchase, timestamp: at('2026-11-07T01:46:41Z') }
+  const laterTransfer = { ...transfer, timestamp: at('2026-11-07T01:45:54Z') }
+  const [run] = matchRecentRuns([labeledDeposit, laterTransfer, laterPurchase], friendId)
+  assert.equal(run?.date, '2026-11-06')
+  assert.equal(run?.timeRestock, '09:46:41')
+})
+
+test('rejects missing, malformed and impossible deposit dates', () => {
+  for (const message of ['deposit', 'deposit-13/6/2026', 'deposit-2/29/2026', 'deposit-11/31/2026', 'deposit-0/6/2026', 'deposit-11/6/26', 'deposit-11/6/2026 extra']) {
+    assert.equal(matchRecentRuns([{ ...deposit, data: { ...deposit.data, message } }, transfer, purchase], friendId).length, 0, message)
+  }
 })
