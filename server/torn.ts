@@ -7,11 +7,12 @@ export interface TornLog {
 
 export interface ImportedRun {
   sourceLogId: string
+  sourceDepositId?: string
   date: string
-  cashDeposit: number
-  saPrice: number
-  pasabuyQty: number
-  timeRestock: string
+  cashDeposit?: number
+  saPrice?: number
+  pasabuyQty?: number
+  timeRestock?: string
 }
 
 const XANAX_ITEM_ID = 206
@@ -119,6 +120,7 @@ export function matchRecentRuns(logs: TornLog[], recipientId = friendId()): Impo
     if (cashDeposit === null || saPrice === null) continue
     runs.push({
       sourceLogId: purchase.id,
+      sourceDepositId: deposit.id,
       date: depositDate(deposit)!,
       cashDeposit,
       saPrice,
@@ -127,7 +129,15 @@ export function matchRecentRuns(logs: TornLog[], recipientId = friendId()): Impo
     })
     usedDeposits.add(deposit.id)
   }
-  return runs.slice(-MAX_RUNS_PER_SYNC).reverse()
+  for (const deposit of deposits) {
+    if (usedDeposits.has(deposit.id) || deposit.timestamp < FIRST_IMPORT_TIMESTAMP) continue
+    runs.push({
+      sourceLogId: `deposit:${deposit.id}`,
+      sourceDepositId: deposit.id,
+      date: depositDate(deposit)!,
+    })
+  }
+  return runs.reverse().sort((a, b) => b.date.localeCompare(a.date)).slice(0, MAX_RUNS_PER_SYNC)
 }
 
 async function fetchLogType(typeId: number, relevant: (log: TornLog) => boolean): Promise<TornLog[]> {

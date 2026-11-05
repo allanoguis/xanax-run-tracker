@@ -41,3 +41,7 @@ test('builds a dated row with the sheet formulas', () => {
     '09:46:41',
   ])
 })
+
+test('leaves every other cell blank for a date-only run', () => {
+  assert.deepEqual(buildRunValues({ date: '2026-11-06' }, 3), [46332, '', '', '', '', '', '', ''])
+})

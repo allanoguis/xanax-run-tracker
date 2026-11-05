@@ -22,6 +22,7 @@ const purchase = event('purchase', 4201, '2026-11-06T01:46:41Z', {
 test('matches the three events and converts purchase time to Manila', () => {
   assert.deepEqual(matchRecentRuns([purchase, deposit, transfer], friendId), [{
     sourceLogId: 'purchase',
+    sourceDepositId: 'deposit',
     date: '2026-11-06',
     cashDeposit: 510000,
     saPrice: 676231,
@@ -44,13 +45,13 @@ test('keeps one labeled quantity across repeated transfers for a purchase', () =
 
 test('does not guess a quantity when transfers for one purchase have different labels', () => {
   const otherQuantity = { ...transfer, id: 'transfer-2', data: { ...transfer.data, message: 'xan3' } }
-  assert.equal(matchRecentRuns([deposit, transfer, otherQuantity, purchase], friendId).length, 0)
+  assert.equal(matchRecentRuns([deposit, transfer, otherQuantity, purchase], friendId)[0]?.pasabuyQty, undefined)
 })
 
 test('rejects unlabeled and unrelated events', () => {
   assert.equal(matchRecentRuns([{ ...deposit, data: { ...deposit.data, message: 'other' } }, transfer, purchase], friendId).length, 0)
-  assert.equal(matchRecentRuns([deposit, { ...transfer, data: { ...transfer.data, sender: 123 } }, purchase], friendId).length, 0)
-  assert.equal(matchRecentRuns([deposit, transfer, { ...purchase, data: { ...purchase.data, area: 2 } }], friendId).length, 0)
+  assert.equal(matchRecentRuns([deposit, { ...transfer, data: { ...transfer.data, sender: 123 } }, purchase], friendId)[0]?.saPrice, undefined)
+  assert.equal(matchRecentRuns([deposit, transfer, { ...purchase, data: { ...purchase.data, area: 2 } }], friendId)[0]?.saPrice, undefined)
 })
 
 test('uses the label date across midnight and ignores historical purchases', () => {
@@ -89,4 +90,13 @@ test('rejects missing, malformed and impossible deposit dates', () => {
   for (const message of ['deposit', 'deposit-13/6/2026', 'deposit-2/29/2026', 'deposit-11/31/2026', 'deposit-0/6/2026', 'deposit-11/6/26', 'deposit-11/6/2026 extra']) {
     assert.equal(matchRecentRuns([{ ...deposit, data: { ...deposit.data, message } }, transfer, purchase], friendId).length, 0, message)
   }
+})
+
+test('creates a date-only candidate before transfers or a purchase arrive', () => {
+  const pending = matchRecentRuns([deposit], friendId)
+  assert.deepEqual(pending, [{ sourceLogId: 'deposit:deposit', sourceDepositId: 'deposit', date: '2026-11-06' }])
+  const completed = matchRecentRuns([deposit, transfer, purchase], friendId)
+  assert.equal(completed.length, 1)
+  assert.equal(completed[0]?.sourceDepositId, pending[0]?.sourceDepositId)
+  assert.equal(completed[0]?.saPrice, 676231)
 })

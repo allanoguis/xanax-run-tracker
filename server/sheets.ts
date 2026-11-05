@@ -4,10 +4,10 @@ import { google, type sheets_v4 } from 'googleapis'
 
 export interface RunInput {
   date: string
-  cashDeposit: number
-  saPrice: number
-  pasabuyQty: number
-  timeRestock: string
+  cashDeposit?: number
+  saPrice?: number
+  pasabuyQty?: number
+  timeRestock?: string
 }
 
 const SHEET_NAME = 'Runs'
@@ -73,15 +73,16 @@ function dateSerial(date: string): number {
 }
 
 export function buildRunValues(input: RunInput, rowNumber: number): Array<number | string> {
+  if (input.saPrice === undefined) return [dateSerial(input.date), '', '', '', '', '', '', '']
   return [
     dateSerial(input.date),
-    input.cashDeposit,
+    input.cashDeposit ?? '',
     input.saPrice,
     `=C${rowNumber}*(30-E${rowNumber})`,
-    input.pasabuyQty,
+    input.pasabuyQty ?? '',
     `=E${rowNumber}*C${rowNumber}`,
     `=B${rowNumber}-D${rowNumber}`,
-    input.timeRestock,
+    input.timeRestock ?? '',
   ]
 }
 
@@ -157,7 +158,7 @@ export async function getRuns() {
 }
 
 // Insert a run, or reconcile the quantity of a previously imported purchase.
-export async function createRun(input: RunInput & { sourceLogId: string }) {
+export async function createRun(input: RunInput & { sourceLogId: string; sourceDepositId?: string }) {
   const sheets = getSheetsClient()
   const spreadsheetId = getSpreadsheetId()
 
@@ -179,14 +180,24 @@ export async function createRun(input: RunInput & { sourceLogId: string }) {
   })
 
   const rows = (response.data.values ?? []) as unknown[][]
-  const existingIndex = rows.findIndex((row) =>
+  const depositMetadata = input.sourceDepositId ? await sheets.spreadsheets.developerMetadata.search({
+    spreadsheetId,
+    requestBody: { dataFilters: [{ developerMetadataLookup: {
+      metadataKey: 'tornImportedDepositLogId', metadataValue: input.sourceDepositId,
+    } }] },
+  }) : undefined
+  const depositRow = depositMetadata?.data.matchedDeveloperMetadata?.[0]?.developerMetadata?.location?.dimensionRange?.startIndex
+  const existingIndex = depositRow != null ? depositRow - 1 : input.timeRestock === undefined ? -1 : rows.findIndex((row) =>
     Number(row[0]) === dateSerial(input.date) && String(row[7] ?? '') === input.timeRestock,
   )
   if (imported && existingIndex < 0) throw new Error('RUN_ROW_NOT_FOUND')
 
   if (existingIndex >= 0) {
     const rowNumber = existingIndex + 2
-    const quantityChanged = Number(rows[existingIndex][4]) !== input.pasabuyQty
+    // A pending sync must never clear a row that has already been completed.
+    if (input.saPrice === undefined) return { rowNumber, status: 'unchanged' }
+    const quantityChanged = buildRunValues(input, rowNumber).some((value, index) =>
+      ![3, 5, 6].includes(index) && String(rows[existingIndex]?.[index] ?? '') !== String(value))
     if (quantityChanged || !imported) {
       const spreadsheet = await sheets.spreadsheets.get({
         spreadsheetId,
@@ -198,8 +209,11 @@ export async function createRun(input: RunInput & { sourceLogId: string }) {
       const requests: sheets_v4.Schema$Request[] = []
       if (quantityChanged) requests.push({
         updateCells: {
-          start: { sheetId, rowIndex: rowNumber - 1, columnIndex: 4 },
-          rows: [{ values: [{ userEnteredValue: { numberValue: input.pasabuyQty } }] }],
+          start: { sheetId, rowIndex: rowNumber - 1, columnIndex: 0 },
+          rows: [{ values: buildRunValues(input, rowNumber).map((value) => ({
+            userEnteredValue: typeof value === 'number' ? { numberValue: value }
+              : value.startsWith('=') ? { formulaValue: value } : { stringValue: value },
+          })) }],
           fields: 'userEnteredValue',
         },
       })
@@ -238,6 +252,11 @@ export async function createRun(input: RunInput & { sourceLogId: string }) {
     spreadsheetId,
     requestBody: {
       requests: [
+        ...(input.sourceDepositId ? [{ createDeveloperMetadata: { developerMetadata: {
+          metadataKey: 'tornImportedDepositLogId', metadataValue: input.sourceDepositId,
+          location: { dimensionRange: { sheetId, dimension: 'ROWS', startIndex: rowNumber - 1, endIndex: rowNumber } },
+          visibility: 'PROJECT',
+        } } } as sheets_v4.Schema$Request] : []),
         {
           updateCells: {
             start: { sheetId, rowIndex: rowNumber - 1, columnIndex: 0 },
