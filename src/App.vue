@@ -229,6 +229,16 @@ async function copyCell(value: string, row: number, column: number) {
             <option value="discord">Discord</option>
           </select>
         </div>
+        <a
+          class="github-link"
+          href="https://github.com/dev-chester/xanax-run-tracker"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="View Torn Run Tracker on GitHub"
+        >
+          <svg class="github-icon" aria-hidden="true"><use href="/icons.svg#github-icon" /></svg>
+          GitHub
+        </a>
         <span class="private-label"><LockKeyhole :size="15" /> Private workspace</span>
         <button v-if="connected" class="link-button" type="button" @click="lock">Lock</button>
       </div>
